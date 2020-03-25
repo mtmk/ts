@@ -9,6 +9,12 @@ namespace Tspec.Demo
     {
         private HashSet<char> _vowels;
 
+        [Step("Stop Bridge")]
+        public void StopBridge()
+        {
+            Console.WriteLine("STOP");
+        }
+        
         [Step("Vowels in English language are <vowelString>.")]
         public void SetLanguageVowels(string vowelString)
         {

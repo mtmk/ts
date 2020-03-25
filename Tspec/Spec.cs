@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Tspec
@@ -19,9 +20,15 @@ namespace Tspec
 
         public void AddStepDefFile(FileInfo file)
         {
-            _defs.AddRange(FindIn(file));
+            using (var text = file.OpenText())
+                _defs.AddRange(FindIn(text));
         }
-
+        public void AddStepDefText(string str)
+        {
+            using (var text = new StreamReader(new MemoryStream(Encoding.UTF8.GetBytes(str))))
+                _defs.AddRange(FindIn(text));
+        }
+        
         private IEnumerable<SpecImpl> FindIn(Assembly assembly) => assembly.GetTypes()
             .SelectMany(t => t.GetMethods())
             .Where(m => m.GetCustomAttributes().Any(a => a is StepAttribute))
@@ -61,49 +68,48 @@ namespace Tspec
                 };
             });
 
-        private IEnumerable<SpecDef> FindIn(FileInfo file)
+        private IEnumerable<SpecDef> FindIn(StreamReader text)
         {
             SpecDef current = null;
-            using (var text = file.OpenText())
-                while (true)
+            while (true)
+            {
+                var line = text.ReadLine();
+                if (line == null) break;
+
+                // Any line starting with '*' is definition
+                if (Regex.IsMatch(line, @"^\s*\*\s*.+"))
                 {
-                    var line = text.ReadLine();
-                    if (line == null) break;
+                    current = new SpecDef {Text = Regex.Match(line, @"^\s*\*(.+?)$").Groups[1].Value.Trim()};
+                    yield return current;
+                }
 
-                    // Any line starting with '*' is definition
-                    if (Regex.IsMatch(line, @"^\s*\*\s*.+"))
+                // Add any tables to the current spec
+                if (current != null && Regex.IsMatch(line, @"^\s*\|"))
+                {
+                    var strings = line.Split('|');
+
+                    // not a table
+                    if (strings.Length < 3) continue;
+
+                    // remove first and last elements and trim
+                    var values = strings.Skip(1).Take(strings.Length - 2)
+                        .Select(x => x.Trim()).ToArray();
+
+                    // ignore table lines
+                    if (values.All(s => s.All(c => c == '-'))) continue;
+
+                    if (current.Table == null)
                     {
-                        current = new SpecDef {Text = Regex.Match(line, @"^\s*\*(.+?)$").Groups[1].Value.Trim()};
-                        yield return current;
+                        // No table yet. Assume header
+                        current.Table = new Table {Columns = values};
                     }
-
-                    // Add any tables to the current spec
-                    if (current != null && Regex.IsMatch(line, @"^\s*\|"))
+                    else
                     {
-                        var strings = line.Split('|');
-
-                        // not a table
-                        if (strings.Length < 3) continue;
-
-                        // remove first and last elements and trim
-                        var values = strings.Skip(1).Take(strings.Length - 2)
-                            .Select(x => x.Trim()).ToArray();
-
-                        // ignore table lines
-                        if (values.All(s => s.All(c => c == '-'))) continue;
-
-                        if (current.Table == null)
-                        {
-                            // No table yet. Assume header
-                            current.Table = new Table {Columns = values};
-                        }
-                        else
-                        {
-                            // ..and the values
-                            current.Table.AddRow(values);
-                        }
+                        // ..and the values
+                        current.Table.AddRow(values);
                     }
                 }
+            }
         }
 
         public IEnumerable<Result> Run()
@@ -157,7 +163,7 @@ namespace Tspec
                 {
                     Success = exception == null,
                     Text = specDef.Text,
-                    Error = exception?.Message,
+                    Error = exception?.GetBaseException().Message,
                 };
             }
         }

@@ -7,6 +7,7 @@ To execute this specification, run
 
     gauge run specs
 
+* Stop Bridge
 
 * Vowels in English language are "aeiou".
 
